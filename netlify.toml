@@ -1,0 +1,11 @@
+# Configuración de Netlify para funciones serverless
+# Coloca este archivo en la raíz de tu proyecto Netlify
+
+[build]
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Variables de entorno necesarias (configúralas en el panel de Netlify)
+# GOOGLE_SCRIPT_URL = "URL de tu Google Apps Script Web App"
