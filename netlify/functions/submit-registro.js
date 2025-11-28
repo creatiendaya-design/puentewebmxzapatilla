@@ -1,45 +1,40 @@
 /**
  * Netlify Function: submit-registro
- * Actúa como puente entre Shopify y Google Apps Script
- * Evita problemas de CORS y agrega información adicional
- * 
- * INSTALACIÓN:
- * 1. Crea una carpeta "netlify/functions" en tu proyecto
- * 2. Guarda este archivo como "submit-registro.js"
- * 3. Configura la variable de entorno GOOGLE_SCRIPT_URL en Netlify
- * 4. Deploy a Netlify
+ * Versión corregida con manejo CORS mejorado
  */
 
 const fetch = require('node-fetch');
 
+// Headers CORS que se usarán en todas las respuestas
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type, Accept',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Max-Age': '86400', // 24 horas
+};
+
 exports.handler = async (event, context) => {
+  // Manejar preflight OPTIONS request
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: ''
+    };
+  }
+
   // Solo permitir método POST
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS'
+        ...corsHeaders
       },
       body: JSON.stringify({ 
         success: false, 
-        message: 'Método no permitido' 
+        message: 'Método no permitido. Use POST.' 
       })
-    };
-  }
-
-  // Manejar preflight CORS
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS'
-      },
-      body: ''
     };
   }
 
@@ -48,11 +43,26 @@ exports.handler = async (event, context) => {
     const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
     if (!GOOGLE_SCRIPT_URL) {
-      throw new Error('GOOGLE_SCRIPT_URL no configurada');
+      throw new Error('GOOGLE_SCRIPT_URL no configurada en las variables de entorno');
     }
 
     // Parsear datos del body
-    const data = JSON.parse(event.body);
+    let data;
+    try {
+      data = JSON.parse(event.body);
+    } catch (e) {
+      return {
+        statusCode: 400,
+        headers: {
+          'Content-Type': 'application/json',
+          ...corsHeaders
+        },
+        body: JSON.stringify({
+          success: false,
+          message: 'JSON inválido en el body'
+        })
+      };
+    }
 
     // Validar datos requeridos
     if (!data.nombre || !data.email || !data.whatsapp) {
@@ -60,11 +70,11 @@ exports.handler = async (event, context) => {
         statusCode: 400,
         headers: {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
+          ...corsHeaders
         },
         body: JSON.stringify({
           success: false,
-          message: 'Faltan campos requeridos'
+          message: 'Faltan campos requeridos: nombre, email y whatsapp son obligatorios'
         })
       };
     }
@@ -76,22 +86,35 @@ exports.handler = async (event, context) => {
         statusCode: 400,
         headers: {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
+          ...corsHeaders
         },
         body: JSON.stringify({
           success: false,
-          message: 'Email inválido'
+          message: 'Formato de email inválido'
         })
       };
     }
 
     // Agregar información adicional
     const enrichedData = {
-      ...data,
+      nombre: data.nombre.trim(),
+      email: data.email.trim().toLowerCase(),
+      whatsapp: data.whatsapp.trim(),
+      producto: data.producto || 'Lanzamiento',
+      productoId: data.productoId || '',
+      productoHandle: data.productoHandle || '',
+      productoPrice: data.productoPrice || '',
+      productoImage: data.productoImage || '',
       ip: event.headers['x-forwarded-for'] || event.headers['client-ip'] || 'Unknown',
       userAgent: event.headers['user-agent'] || 'Unknown',
-      fecha: new Date().toISOString()
+      fecha: new Date().toISOString(),
+      origen: event.headers['origin'] || event.headers['referer'] || 'Unknown'
     };
+
+    console.log('Enviando datos a Google Apps Script:', {
+      email: enrichedData.email,
+      producto: enrichedData.producto
+    });
 
     // Enviar a Google Apps Script
     const response = await fetch(GOOGLE_SCRIPT_URL, {
@@ -99,10 +122,20 @@ exports.handler = async (event, context) => {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(enrichedData)
+      body: JSON.stringify(enrichedData),
+      redirect: 'follow'
     });
 
-    const result = await response.json();
+    const responseText = await response.text();
+    console.log('Respuesta de Google:', responseText);
+
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (e) {
+      console.error('Error parsing Google response:', responseText);
+      throw new Error('Respuesta inválida de Google Apps Script');
+    }
 
     // Validar respuesta de Google
     if (!response.ok || !result.success) {
@@ -114,7 +147,7 @@ exports.handler = async (event, context) => {
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
+        ...corsHeaders
       },
       body: JSON.stringify({
         success: true,
@@ -130,7 +163,7 @@ exports.handler = async (event, context) => {
       statusCode: 500,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
+        ...corsHeaders
       },
       body: JSON.stringify({
         success: false,
