@@ -79,7 +79,7 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // Validar formato de email
+    // Validar formato de email df
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(data.email)) {
       return {
